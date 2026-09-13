@@ -7,6 +7,7 @@ from werkzeug.exceptions import HTTPException
 from .config import load_config
 from .db import init_pool
 from .errors import ApiError
+from .access import bp as access_bp
 from .events import bp as events_bp
 from .incidents import bp as incidents_bp
 from .threats import bp as threats_bp
@@ -34,6 +35,7 @@ def create_app(overrides: dict | None = None) -> Flask:
     app.register_blueprint(events_bp)
     app.register_blueprint(threats_bp)
     app.register_blueprint(incidents_bp)
+    app.register_blueprint(access_bp)
     _register_request_id(app)
     _register_error_handlers(app)
     return app

@@ -182,9 +182,73 @@ INCIDENT_BREADTH_MAX_POINTS = 6
 INCIDENT_PROGRESSION_POINTS = 6
 INCIDENT_STRONG_CORRELATION_POINTS = 3
 
+# --- zero-trust decision engine ----------------------------------------------
+#
+# Authentication alone does not imply authorization. The engine consumes the
+# risk the risk engine produced and the incidents the correlation engine built;
+# it never recomputes either.
+
+ZT_MODEL_VERSION = "zerotrust.v1"
+
+ALLOW = "allow"
+STEP_UP = "step_up"
+DENY = "deny"
+
+# Band floors, reused from the risk model rather than restated, so tuning a band
+# cannot leave the authorization thresholds behind.
+RISK_BAND_FLOOR = {label: lower for lower, _upper, label in RISK_LEVEL_BANDS}
+
+ZT_ELEVATED_RISK = RISK_BAND_FLOOR["medium"]
+ZT_HIGH_RISK = RISK_BAND_FLOOR["high"]
+ZT_CRITICAL_RISK = RISK_BAND_FLOOR["critical"]
+
+# A threat counts as active for this long after detection. Measured on
+# detected_at, the server clock, so a client cannot age out its own threats.
+ZT_THREAT_WINDOW_SECONDS = 3600
+# Incidents are gated on status, not time: an untriaged incident stays relevant
+# until an analyst moves it on. Nothing here closes an incident.
+ZT_ACTIVE_INCIDENT_STATUSES = ("open", "investigating")
+# Caps the context queries so one decision cannot scan an unbounded history.
+ZT_CONTEXT_LIMIT = 50
+
+DEVICE_TRUSTED = "trusted"
+DEVICE_UNTRUSTED = "untrusted"
+DEVICE_UNKNOWN = "unknown"
+
+SENSITIVITY_PUBLIC = "public"
+SENSITIVITY_INTERNAL = "internal"
+SENSITIVITY_SENSITIVE = "sensitive"
+SENSITIVITY_CRITICAL = "critical"
+# Ascending order; index in this tuple is the comparison rank.
+SENSITIVITY_ORDER = (SENSITIVITY_PUBLIC, SENSITIVITY_INTERNAL, SENSITIVITY_SENSITIVE, SENSITIVITY_CRITICAL)
+
+# Longest matching prefix wins. Derived server-side: letting a caller declare a
+# resource's sensitivity would let it relabel /api/admin as public.
+RESOURCE_SENSITIVITY_PREFIXES = (
+    ("/api/admin", SENSITIVITY_CRITICAL),
+    ("/admin", SENSITIVITY_CRITICAL),
+    ("/api/internal", SENSITIVITY_CRITICAL),
+    ("/api/reports", SENSITIVITY_SENSITIVE),
+    ("/api/users", SENSITIVITY_SENSITIVE),
+    ("/api/search", SENSITIVITY_INTERNAL),
+    ("/api/dashboard", SENSITIVITY_INTERNAL),
+    ("/api/public", SENSITIVITY_PUBLIC),
+    ("/health", SENSITIVITY_PUBLIC),
+)
+# An unrecognised resource is treated as sensitive rather than public: where
+# uncertainty affects authorization, fail closed.
+DEFAULT_RESOURCE_SENSITIVITY = SENSITIVITY_SENSITIVE
+
+# Resources at or above this rank require a privileged role (PRIVILEGED_ROLES).
+ZT_PRIVILEGED_SENSITIVITY = SENSITIVITY_CRITICAL
+
 READ = "read"
 WRITE = "write"
-VALID_SCOPES = frozenset({READ, WRITE})
+# Asking for an access decision is neither reading telemetry nor writing it. A
+# separate scope keeps an ingest agent's credential from acting as a policy
+# enforcement point.
+DECIDE = "decide"
+VALID_SCOPES = frozenset({READ, WRITE, DECIDE})
 
 
 @dataclass(frozen=True)
