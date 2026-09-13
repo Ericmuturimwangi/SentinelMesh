@@ -1,0 +1,126 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Dark is the primary SOC presentation, but the operator can choose. Both
+   palettes are neutral and low-chroma so severity colour carries meaning
+   instead of competing with decoration. */
+:root {
+  --surface: oklch(0.985 0.002 250);
+  --surface-raised: oklch(1 0 0);
+  --surface-sunken: oklch(0.96 0.003 250);
+  --border: oklch(0.89 0.005 250);
+  --border-strong: oklch(0.8 0.008 250);
+  --text: oklch(0.24 0.01 255);
+  --text-muted: oklch(0.5 0.012 255);
+  --text-faint: oklch(0.62 0.01 255);
+  --accent: oklch(0.52 0.13 245);
+  --accent-quiet: oklch(0.94 0.02 245);
+
+  --critical: oklch(0.52 0.19 25);
+  --critical-quiet: oklch(0.95 0.03 25);
+  --high: oklch(0.55 0.14 55);
+  --high-quiet: oklch(0.95 0.035 65);
+  --medium: oklch(0.55 0.1 90);
+  --medium-quiet: oklch(0.96 0.03 95);
+  --low: oklch(0.5 0.05 230);
+  --low-quiet: oklch(0.95 0.015 230);
+  --ok: oklch(0.5 0.11 155);
+  --ok-quiet: oklch(0.95 0.03 155);
+}
+
+.dark {
+  --surface: oklch(0.19 0.008 255);
+  --surface-raised: oklch(0.23 0.009 255);
+  --surface-sunken: oklch(0.155 0.008 255);
+  --border: oklch(0.31 0.011 255);
+  --border-strong: oklch(0.4 0.014 255);
+  --text: oklch(0.94 0.004 255);
+  --text-muted: oklch(0.72 0.012 255);
+  --text-faint: oklch(0.58 0.012 255);
+  --accent: oklch(0.72 0.12 235);
+  --accent-quiet: oklch(0.3 0.045 240);
+
+  --critical: oklch(0.72 0.17 22);
+  --critical-quiet: oklch(0.31 0.07 22);
+  --high: oklch(0.78 0.13 62);
+  --high-quiet: oklch(0.32 0.055 62);
+  --medium: oklch(0.83 0.12 95);
+  --medium-quiet: oklch(0.31 0.045 95);
+  --low: oklch(0.74 0.06 235);
+  --low-quiet: oklch(0.28 0.03 235);
+  --ok: oklch(0.76 0.13 158);
+  --ok-quiet: oklch(0.28 0.05 158);
+}
+
+@theme inline {
+  --color-surface: var(--surface);
+  --color-raised: var(--surface-raised);
+  --color-sunken: var(--surface-sunken);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-accent: var(--accent);
+  --color-accent-quiet: var(--accent-quiet);
+  --color-critical: var(--critical);
+  --color-critical-quiet: var(--critical-quiet);
+  --color-high: var(--high);
+  --color-high-quiet: var(--high-quiet);
+  --color-medium: var(--medium);
+  --color-medium-quiet: var(--medium-quiet);
+  --color-low: var(--low);
+  --color-low-quiet: var(--low-quiet);
+  --color-ok: var(--ok);
+  --color-ok-quiet: var(--ok-quiet);
+
+  --font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus is always visible; nothing in the UI relies on hover alone. */
+:where(a, button, [tabindex="0"], summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes sm-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.skeleton {
+  animation: sm-pulse 1.6s ease-in-out infinite;
+  background: var(--border);
+  border-radius: 3px;
+}

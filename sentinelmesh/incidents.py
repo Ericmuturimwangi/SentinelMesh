@@ -29,12 +29,47 @@ LIST_SQL = f"""
 
 THREATS_SQL = """
     SELECT t.id, t.threat_type, t.severity, t.confidence, t.rule_id,
-           t.risk_score, t.risk_level, t.detected_at, t.evidence,
+           t.risk_score, t.risk_level, t.risk_factors, t.detected_at, t.evidence,
            e.id AS event_id, e.event_type, e.source_ip, e.user_id, e.occurred_at
     FROM threats t
     JOIN events e ON e.id = t.event_id
     WHERE t.incident_id = %s
     ORDER BY t.detected_at, t.id
+"""
+
+
+DECISIONS_FOR_INCIDENT_SQL = """
+    SELECT id, decided_at, subject_username, subject_role, device_state,
+           resource, sensitivity, decision, policy, reason, factors
+    FROM access_decisions
+    WHERE incident_id = %s
+    ORDER BY id DESC
+    LIMIT 10
+"""
+
+INCIDENT_SUBJECTS_SQL = """
+    SELECT DISTINCT u.id, u.username, u.role, u.contained
+    FROM threats t
+    JOIN events e ON e.id = t.event_id
+    JOIN users u ON u.id = e.user_id
+    WHERE t.incident_id = %s
+"""
+
+INCIDENT_SOURCES_SQL = """
+    SELECT DISTINCT host(e.source_ip) AS source_ip, (b.source_ip IS NOT NULL) AS blocked
+    FROM threats t
+    JOIN events e ON e.id = t.event_id
+    LEFT JOIN blocked_sources b ON b.source_ip = e.source_ip
+    WHERE t.incident_id = %s AND e.source_ip IS NOT NULL
+"""
+
+INCIDENT_DEVICES_SQL = """
+    SELECT DISTINCT d.id, d.device_fingerprint, d.isolated, d.trust_score
+    FROM devices d
+    JOIN events e ON e.user_id = d.user_id
+                 AND e.metadata ->> 'device_fingerprint' = d.device_fingerprint
+    JOIN threats t ON t.event_id = e.id
+    WHERE t.incident_id = %s
 """
 
 
@@ -74,6 +109,9 @@ def _serialise_threat(row: dict) -> dict:
         "rule_id": row["rule_id"],
         "risk_score": int(row["risk_score"]) if row["risk_score"] is not None else None,
         "risk_level": row["risk_level"],
+        # The Phase 3 factor breakdown, so the dashboard can show why this
+        # threat scored what it did without recomputing anything.
+        "risk_factors": row["risk_factors"],
         "detected_at": row["detected_at"].isoformat(),
         "reason": row["evidence"].get("reason") if isinstance(row["evidence"], dict) else None,
         "event": {
@@ -172,11 +210,59 @@ def get_incident(incident_id: int):
         )
         actions = cur.fetchall()
 
+    # Everything an analyst needs for one incident in a single request. Each
+    # query is bounded by incident membership, so the count does not grow with
+    # the number of threats -- this is not an N+1.
+    with conn.cursor() as cur:
+        cur.execute(DECISIONS_FOR_INCIDENT_SQL, (incident_id,))
+        decisions = cur.fetchall()
+    with conn.cursor() as cur:
+        cur.execute(INCIDENT_SUBJECTS_SQL, (incident_id,))
+        subjects = cur.fetchall()
+    with conn.cursor() as cur:
+        cur.execute(INCIDENT_SOURCES_SQL, (incident_id,))
+        sources = cur.fetchall()
+    with conn.cursor() as cur:
+        cur.execute(INCIDENT_DEVICES_SQL, (incident_id,))
+        devices = cur.fetchall()
+
     return jsonify(
         _serialise(row, len(threats))
         | {
             "threats": [_serialise_threat(t) for t in threats],
             "timeline": build_timeline(conn, incident_id),
             "responses": [serialise_response(a) for a in actions],
+            "zero_trust": [
+                {
+                    "id": d["id"],
+                    "decided_at": d["decided_at"].isoformat(),
+                    "subject": d["subject_username"],
+                    "subject_role": d["subject_role"],
+                    "device_state": d["device_state"],
+                    "resource": d["resource"],
+                    "sensitivity": d["sensitivity"],
+                    "decision": d["decision"],
+                    "policy": d["policy"],
+                    "reason": d["reason"],
+                    "factors": d["factors"].get("factors", []) if isinstance(d["factors"], dict) else [],
+                }
+                for d in decisions
+            ],
+            "containment": {
+                "subjects": [
+                    {"id": s["id"], "username": s["username"], "role": s["role"], "contained": s["contained"]}
+                    for s in subjects
+                ],
+                "sources": [{"source_ip": s["source_ip"], "blocked": s["blocked"]} for s in sources],
+                "devices": [
+                    {
+                        "id": d["id"],
+                        "fingerprint": d["device_fingerprint"],
+                        "isolated": d["isolated"],
+                        "trust_score": float(d["trust_score"]),
+                    }
+                    for d in devices
+                ],
+            },
         }
     )

@@ -1,5 +1,6 @@
 import re
 import os
+import secrets
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -333,8 +334,18 @@ def load_config() -> dict:
     if not api_keys:
         raise RuntimeError("SENTINELMESH_API_KEYS is empty; refusing to start an unauthenticated ingest API")
 
+    # Signs the SOC dashboard's session cookie. Without one configured, an
+    # ephemeral key is generated so sessions simply do not survive a restart --
+    # never a predictable fallback.
+    secret_key = os.environ.get("SENTINELMESH_SECRET_KEY") or secrets.token_urlsafe(48)
+
     return {
         "DATABASE_URL": database_url,
         "API_KEYS": api_keys,
         "MAX_CONTENT_LENGTH": MAX_BODY_BYTES,
+        "SECRET_KEY": secret_key,
+        "SESSION_COOKIE_HTTPONLY": True,
+        "SESSION_COOKIE_SAMESITE": "Strict",
+        # Set SENTINELMESH_INSECURE_COOKIES=1 only for local http development.
+        "SESSION_COOKIE_SECURE": os.environ.get("SENTINELMESH_INSECURE_COOKIES") != "1",
     }

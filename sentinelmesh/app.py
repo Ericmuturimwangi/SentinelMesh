@@ -1,7 +1,8 @@
 import logging
 import uuid
+from pathlib import Path
 
-from flask import Flask, g, jsonify, request
+from flask import Flask, abort, g, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
 from .config import load_config
@@ -11,6 +12,7 @@ from .access import bp as access_bp
 from .events import bp as events_bp
 from .incidents import bp as incidents_bp
 from .responses import bp as responses_bp
+from .soc import bp as soc_bp
 from .threats import bp as threats_bp
 
 log = logging.getLogger("sentinelmesh")
@@ -26,8 +28,11 @@ SAFE_HTTP_ERRORS = {
 }
 
 
+DASHBOARD_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+
 def create_app(overrides: dict | None = None) -> Flask:
-    app = Flask(__name__)
+    app = Flask(__name__, static_folder=None)
     app.config.update(load_config())
     if overrides:
         app.config.update(overrides)
@@ -38,9 +43,44 @@ def create_app(overrides: dict | None = None) -> Flask:
     app.register_blueprint(incidents_bp)
     app.register_blueprint(access_bp)
     app.register_blueprint(responses_bp)
+    app.register_blueprint(soc_bp)
     _register_request_id(app)
     _register_error_handlers(app)
+    _serve_dashboard(app)
     return app
+
+
+def _serve_dashboard(app: Flask) -> None:
+    """Serve the built SOC dashboard from the same origin as the API.
+
+    Same-origin is what lets the session cookie be SameSite=Strict. Registered
+    last so it can never shadow an API route, and it refuses to serve anything
+    outside the build directory.
+    """
+
+    @app.get("/")
+    @app.get("/<path:asset>")
+    def dashboard(asset: str = "index.html"):
+        if asset.startswith(("api/", "soc/")):
+            abort(404)
+        if not DASHBOARD_DIST.is_dir():
+            return (
+                jsonify(
+                    {
+                        "error": {
+                            "code": "dashboard_not_built",
+                            "message": "The SOC dashboard has not been built. Run `npm run build` in frontend/.",
+                        }
+                    }
+                ),
+                503,
+            )
+
+        candidate = (DASHBOARD_DIST / asset).resolve()
+        if candidate.is_file() and candidate.is_relative_to(DASHBOARD_DIST):
+            return send_from_directory(DASHBOARD_DIST, candidate.relative_to(DASHBOARD_DIST).as_posix())
+        # Unknown paths fall through to the SPA so client-side routes work.
+        return send_from_directory(DASHBOARD_DIST, "index.html")
 
 
 def _register_request_id(app: Flask) -> None:

@@ -1,0 +1,141 @@
+/** Test fixtures only. Production UI data always comes from the API. */
+import type { IncidentDetail, IncidentSummary, SocSummary } from "../types";
+
+export const summaryFixture: SocSummary = {
+  incidents: { active: 2, critical: 1, high: 1, other: 0, total: 2 },
+  containment: { contained_subjects: 1, isolated_devices: 1, blocked_sources: 1 },
+  recent_threats: [
+    {
+      id: 3,
+      event_id: 7,
+      threat_type: "injection.sql",
+      severity: "critical",
+      confidence: 0.95,
+      rule_id: "sql_injection.v1",
+      evidence: { reason: "SQL injection indicators" },
+      detected_at: "2026-09-13T09:03:00+00:00",
+      incident_id: 1,
+      risk_score: 94,
+      risk_level: "critical",
+      risk_factors: {},
+      risk_calculated_at: "2026-09-13T09:03:00+00:00",
+    },
+  ],
+  recent_responses: [
+    {
+      id: 5,
+      incident_id: 1,
+      threat_id: 3,
+      action: "block_source",
+      result: "succeeded",
+      policy: "critical_incident_containment",
+      reason: "Incident risk 100 is critical",
+      evidence: {},
+      actor: "engine",
+      occurred_at: "2026-09-13T09:03:05+00:00",
+    },
+    {
+      id: 6,
+      incident_id: 1,
+      threat_id: 3,
+      action: "isolate_device",
+      result: "failed",
+      policy: "critical_incident_containment",
+      reason: "Incident risk 100 is critical",
+      evidence: {},
+      actor: "engine",
+      occurred_at: "2026-09-13T09:03:06+00:00",
+    },
+  ],
+  recent_decisions: [],
+};
+
+export const incidentRow: IncidentSummary = {
+  id: 1,
+  reference: "SM-001",
+  title: "Multi stage attack from 203.0.113.44",
+  classification: "multi_stage_attack",
+  status: "open",
+  severity: "critical",
+  risk_score: 100,
+  risk_factors: {},
+  correlation_key: "ip:203.0.113.44",
+  correlation_confidence: 0.99,
+  correlation_factors: {},
+  correlating: true,
+  threat_count: 3,
+  created_at: "2026-09-13T09:00:00+00:00",
+  last_activity_at: "2026-09-13T09:03:00+00:00",
+};
+
+export const incidentDetailFixture: IncidentDetail = {
+  ...incidentRow,
+  risk_factors: {
+    model_version: "correlation.v1",
+    score: 100,
+    level: "critical",
+    factors: [
+      { factor: "highest_threat_risk", value: 94, contribution: 94, detail: "worst member threat" },
+      { factor: "threat_type_breadth", value: 3, contribution: 6, detail: "3 distinct threat types" },
+      { factor: "attack_progression", value: "multi_stage_attack", contribution: 6, detail: "advanced stages" },
+      { factor: "bounds_clamp", value: 109, contribution: -9, detail: "clamped into 0-100" },
+    ],
+  },
+  correlation_factors: {
+    model_version: "correlation.v1",
+    explanation: "3 threats correlated from 203.0.113.44 within 42 seconds.",
+    attack_stages: ["Credential Abuse", "Privileged Access Attempt", "Application Injection"],
+    signals: [{ factor: "same_source", value: "203.0.113.44", contribution: 0.4, detail: "same source address" }],
+  },
+  threats: [
+    {
+      id: 3,
+      threat_type: "injection.sql",
+      severity: "critical",
+      confidence: 0.95,
+      rule_id: "sql_injection.v1",
+      risk_score: 94,
+      risk_level: "critical",
+      risk_factors: {
+        model_version: "risk.v1",
+        score: 94,
+        level: "critical",
+        factors: [{ factor: "threat_severity", value: "critical", contribution: 88, detail: "critical baseline" }],
+      },
+      detected_at: "2026-09-13T09:03:00+00:00",
+      reason: "SQL injection indicators (tautology) in query.q",
+      event: {
+        id: 7,
+        event_type: "api.request",
+        source_ip: "203.0.113.44",
+        user_id: 2,
+        occurred_at: "2026-09-13T09:02:50+00:00",
+      },
+    },
+  ],
+  timeline: [
+    { at: "2026-09-13T09:02:50+00:00", kind: "event", detail: "api.request from 203.0.113.44", event_id: 7 },
+    { at: "2026-09-13T09:03:00+00:00", kind: "detection", detail: "injection.sql detected", threat_id: 3 },
+  ],
+  responses: summaryFixture.recent_responses,
+  zero_trust: [
+    {
+      id: 9,
+      decided_at: "2026-09-13T09:04:00+00:00",
+      subject: "t.devries",
+      subject_role: "viewer",
+      device_state: "untrusted",
+      resource: "/api/internal",
+      sensitivity: "critical",
+      decision: "deny",
+      policy: "critical_incident",
+      reason: "Principal is associated with active incident SM-001.",
+      factors: [],
+    },
+  ],
+  containment: {
+    subjects: [{ id: 2, username: "t.devries", role: "viewer", contained: true }],
+    sources: [{ source_ip: "203.0.113.44", blocked: true }],
+    devices: [{ id: 1, fingerprint: "fp-dead-vm", isolated: true, trust_score: 4 }],
+  },
+};
