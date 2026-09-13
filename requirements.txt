@@ -1,1 +1,2 @@
-psycopg[binary]>=3.2
+flask>=3.0
+psycopg[binary,pool]>=3.2

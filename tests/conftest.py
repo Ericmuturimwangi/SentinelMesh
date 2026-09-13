@@ -1,0 +1,91 @@
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import psycopg
+import pytest
+from psycopg.rows import dict_row
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+TEST_DB = os.environ.get("SENTINELMESH_TEST_DB", "sentinelmesh_test")
+ADMIN_DSN = os.environ.get("SENTINELMESH_ADMIN_DSN", "postgresql:///postgres")
+TEST_DSN = f"postgresql:///{TEST_DB}"
+
+WRITE_SECRET = "test-write-secret-000000"
+READ_SECRET = "test-read-secret-0000000"
+
+TABLES = "events, threats, incidents, responses, devices, users"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def database():
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as conn:
+        conn.execute(f'DROP DATABASE IF EXISTS "{TEST_DB}" WITH (FORCE)')
+        conn.execute(f'CREATE DATABASE "{TEST_DB}"')
+
+    subprocess.run(
+        [sys.executable, str(PROJECT_ROOT / "migrate.py"), "up"],
+        env={**os.environ, "DATABASE_URL": TEST_DSN},
+        check=True,
+        capture_output=True,
+    )
+    yield TEST_DSN
+
+
+@pytest.fixture(scope="session")
+def app(database):
+    os.environ["DATABASE_URL"] = database
+    os.environ["SENTINELMESH_API_KEYS"] = (
+        f"test-agent:write:{WRITE_SECRET},test-analyst:read:{READ_SECRET}"
+    )
+    from sentinelmesh.app import create_app
+
+    application = create_app({"TESTING": True})
+    yield application
+    application.extensions["db_pool"].close()
+
+
+@pytest.fixture
+def client(app):
+    return app.test_client()
+
+
+@pytest.fixture
+def db():
+    """A connection outside the app's pool, for asserting what really landed."""
+    with psycopg.connect(TEST_DSN, row_factory=dict_row, autocommit=True) as conn:
+        yield conn
+
+
+@pytest.fixture(autouse=True)
+def clean_tables(database, db):
+    db.execute(f"TRUNCATE {TABLES} RESTART IDENTITY CASCADE")
+
+
+@pytest.fixture
+def user(db):
+    row = db.execute(
+        "INSERT INTO users (username, role) VALUES ('a.okafor', 'analyst') RETURNING id"
+    ).fetchone()
+    return row["id"]
+
+
+@pytest.fixture
+def write_auth():
+    return {"Authorization": f"Bearer {WRITE_SECRET}"}
+
+
+@pytest.fixture
+def read_auth():
+    return {"Authorization": f"Bearer {READ_SECRET}"}
+
+
+@pytest.fixture
+def event_count(db):
+    def count():
+        return db.execute("SELECT count(*) AS n FROM events").fetchone()["n"]
+
+    return count
