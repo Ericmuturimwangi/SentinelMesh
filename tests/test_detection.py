@@ -317,7 +317,8 @@ def test_event_to_threat_persistence(client, write_auth, db):
 
     assert row["event_type"] == "auth.login.failure"
     assert row["detected_at"] is not None
-    assert row["incident_id"] is None
+    # Phase 4 correlates every threat into an incident at detection time.
+    assert row["incident_id"] is not None
 
 
 def test_rerunning_detection_does_not_duplicate(client, write_auth, db, rerun_detection):

@@ -127,6 +127,61 @@ RISK_ESCALATION_WINDOW_SECONDS = 86_400
 # (lower bound, upper bound, label); bounds inclusive, covering 0..100.
 RISK_LEVEL_BANDS = ((0, 29, "low"), (30, 59, "medium"), (60, 79, "high"), (80, 100, "critical"))
 
+# --- correlation / incident engine -------------------------------------------
+
+CORRELATION_MODEL_VERSION = "correlation.v1"
+
+# Measured from an incident's last_activity_at, so the window slides and a
+# sustained campaign extends it. Chosen to sit well above the 120s brute-force
+# window -- so a campaign that trips that rule repeatedly stays one incident --
+# while staying short enough that two unrelated scans of the same host hours
+# apart do not merge into one campaign.
+CORRELATION_WINDOW_SECONDS = 1800
+
+# Link signal weights. A link's confidence is their sum, clamped.
+CORRELATION_WEIGHT_SAME_SOURCE = Decimal("0.40")
+CORRELATION_WEIGHT_SAME_USER = Decimal("0.15")
+CORRELATION_WEIGHT_TEMPORAL_MAX = Decimal("0.25")
+CORRELATION_WEIGHT_PROGRESSION = Decimal("0.20")
+CORRELATION_CONFIDENCE_MIN = Decimal("0.050")
+CORRELATION_CONFIDENCE_MAX = Decimal("0.990")
+# At or above this, correlation is reported as HIGH and earns a risk bonus.
+CORRELATION_STRONG_THRESHOLD = Decimal("0.750")
+
+# Attack stage of each threat type. Ordering is what makes progression
+# meaningful; a set of threats spanning stages in chronological order is a
+# campaign, whereas three simultaneous detections in one stage is not.
+ATTACK_STAGES = {
+    THREAT_BRUTE_FORCE: (1, "Credential Abuse"),
+    THREAT_PRIVILEGED_ACCESS: (2, "Privileged Access Attempt"),
+    THREAT_SQL_INJECTION: (3, "Application Injection"),
+}
+
+ATTACK_STAGES_BY_NUMBER = {number: name for number, name in ATTACK_STAGES.values()}
+
+INCIDENT_MULTI_STAGE_MIN_STAGES = 2
+
+CLASSIFICATION_MULTI_STAGE = "multi_stage_attack"
+CLASSIFICATION_CREDENTIAL = "credential_attack"
+CLASSIFICATION_PRIVILEGE = "privilege_escalation"
+CLASSIFICATION_APPLICATION = "application_attack"
+CLASSIFICATION_UNCLASSIFIED = "unclassified"
+
+CLASSIFICATION_BY_STAGE = {
+    1: CLASSIFICATION_CREDENTIAL,
+    2: CLASSIFICATION_PRIVILEGE,
+    3: CLASSIFICATION_APPLICATION,
+}
+
+# Campaign-level risk. The base is the WORST member threat, never an average,
+# so a severe threat cannot be diluted by mild ones. Only signals invisible to
+# a single threat's score are added; identity and resource context are already
+# inside every member score and are deliberately not re-counted here.
+INCIDENT_BREADTH_POINTS_PER_TYPE = 3
+INCIDENT_BREADTH_MAX_POINTS = 6
+INCIDENT_PROGRESSION_POINTS = 6
+INCIDENT_STRONG_CORRELATION_POINTS = 3
+
 READ = "read"
 WRITE = "write"
 VALID_SCOPES = frozenset({READ, WRITE})

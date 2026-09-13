@@ -10,6 +10,7 @@ import logging
 
 from psycopg.types.json import Jsonb
 
+from .correlation import correlate
 from .risk import calculate_threat_risk, load_risk_context
 from .rules import RULES
 
@@ -76,6 +77,7 @@ def run_detection(conn, event) -> list:
                     context = load_risk_context(conn, event)
                 risk = calculate_threat_risk(detection, event, context)
                 threat_id = _persist(conn, event["id"], detection, risk)
+                incident = correlate(conn, event, threat_id, detection.summary())
         except Exception:
             log.exception("detection rule failed", extra={"rule": rule.__name__, "event_id": event["id"]})
             continue
@@ -89,10 +91,17 @@ def run_detection(conn, event) -> list:
                 "event_id": event["id"],
                 "risk_score": risk.score,
                 "risk_level": risk.level,
+                "incident_id": incident["incident_id"],
             },
         )
         outcomes.append(
-            detection.summary() | {"threat_id": threat_id, "risk_score": risk.score, "risk_level": risk.level}
+            detection.summary()
+            | {
+                "threat_id": threat_id,
+                "risk_score": risk.score,
+                "risk_level": risk.level,
+                "incident": incident,
+            }
         )
 
     return outcomes

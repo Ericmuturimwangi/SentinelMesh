@@ -24,6 +24,9 @@ SERVER_OWNED_FIELDS = frozenset(
         "risk_level",
         "risk_factors",
         "trust_score",
+        "correlation_confidence",
+        "correlation_key",
+        "classification",
     }
 )
 

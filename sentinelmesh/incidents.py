@@ -1,0 +1,139 @@
+from flask import Blueprint, jsonify, request
+
+from . import config
+from .auth import require_scope
+from .correlation import build_timeline
+from .db import connection
+from .errors import ApiError
+
+bp = Blueprint("incidents", __name__, url_prefix="/api/incidents")
+
+COLUMNS = (
+    "id, title, classification, status, severity, risk_score, risk_factors, "
+    "correlation_key, correlation_confidence, correlation_factors, correlating, "
+    "created_at, last_activity_at"
+)
+
+LIST_SQL = f"""
+    SELECT {COLUMNS},
+           (SELECT count(*) FROM threats t WHERE t.incident_id = i.id) AS threat_count
+    FROM incidents i
+    WHERE (%(cursor_id)s::bigint IS NULL OR id < %(cursor_id)s::bigint)
+      AND (%(status)s::incident_status IS NULL OR status = %(status)s::incident_status)
+    ORDER BY id DESC
+    LIMIT %(limit)s
+"""
+
+THREATS_SQL = """
+    SELECT t.id, t.threat_type, t.severity, t.confidence, t.rule_id,
+           t.risk_score, t.risk_level, t.detected_at, t.evidence,
+           e.id AS event_id, e.event_type, e.source_ip, e.user_id, e.occurred_at
+    FROM threats t
+    JOIN events e ON e.id = t.event_id
+    WHERE t.incident_id = %s
+    ORDER BY t.detected_at, t.id
+"""
+
+
+def reference(incident_id: int) -> str:
+    """Operator-facing label. Derived from the id rather than stored."""
+    return f"SM-{incident_id:03d}"
+
+
+def _serialise(row: dict, threat_count: int) -> dict:
+    return {
+        "id": row["id"],
+        "reference": reference(row["id"]),
+        "title": row["title"],
+        "classification": row["classification"],
+        "status": row["status"],
+        "severity": row["severity"],
+        "risk_score": int(row["risk_score"]),
+        "risk_factors": row["risk_factors"],
+        "correlation_key": row["correlation_key"],
+        "correlation_confidence": (
+            float(row["correlation_confidence"]) if row["correlation_confidence"] is not None else None
+        ),
+        "correlation_factors": row["correlation_factors"],
+        "correlating": row["correlating"],
+        "threat_count": threat_count,
+        "created_at": row["created_at"].isoformat(),
+        "last_activity_at": row["last_activity_at"].isoformat(),
+    }
+
+
+def _serialise_threat(row: dict) -> dict:
+    return {
+        "id": row["id"],
+        "threat_type": row["threat_type"],
+        "severity": row["severity"],
+        "confidence": float(row["confidence"]),
+        "rule_id": row["rule_id"],
+        "risk_score": int(row["risk_score"]) if row["risk_score"] is not None else None,
+        "risk_level": row["risk_level"],
+        "detected_at": row["detected_at"].isoformat(),
+        "reason": row["evidence"].get("reason") if isinstance(row["evidence"], dict) else None,
+        "event": {
+            "id": row["event_id"],
+            "event_type": row["event_type"],
+            "source_ip": str(row["source_ip"]) if row["source_ip"] is not None else None,
+            "user_id": row["user_id"],
+            "occurred_at": row["occurred_at"].isoformat(),
+        },
+    }
+
+
+def _int_param(name: str, default=None):
+    raw = request.args.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        raise ApiError(400, "validation_error", f"{name} must be an integer.") from None
+
+
+@bp.get("/")
+@require_scope(config.READ)
+def list_incidents():
+    limit = _int_param("limit", config.DEFAULT_PAGE_SIZE)
+    if not 1 <= limit <= config.MAX_PAGE_SIZE:
+        raise ApiError(400, "validation_error", f"limit must be between 1 and {config.MAX_PAGE_SIZE}.")
+
+    status = request.args.get("status")
+    if status is not None and status not in {"open", "investigating", "contained", "resolved", "false_positive"}:
+        raise ApiError(400, "validation_error", "Unknown incident status.")
+
+    with connection().cursor() as cur:
+        cur.execute(LIST_SQL, {"cursor_id": _int_param("cursor"), "status": status, "limit": limit})
+        rows = cur.fetchall()
+
+    return jsonify(
+        {
+            "data": [_serialise(row, row["threat_count"]) for row in rows],
+            "next_cursor": str(rows[-1]["id"]) if len(rows) == limit else None,
+        }
+    )
+
+
+@bp.get("/<int:incident_id>")
+@require_scope(config.READ)
+def get_incident(incident_id: int):
+    conn = connection()
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT {COLUMNS} FROM incidents WHERE id = %s", (incident_id,))
+        row = cur.fetchone()
+    if row is None:
+        raise ApiError(404, "not_found", "No such incident.")
+
+    with conn.cursor() as cur:
+        cur.execute(THREATS_SQL, (incident_id,))
+        threats = cur.fetchall()
+
+    return jsonify(
+        _serialise(row, len(threats))
+        | {
+            "threats": [_serialise_threat(t) for t in threats],
+            "timeline": build_timeline(conn, incident_id),
+        }
+    )
