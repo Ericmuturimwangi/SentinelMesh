@@ -117,7 +117,7 @@ def create_event():
     # Summaries only. The full evidence, including payload snippets, is
     # readable through /api/threats/ under the read scope rather than being
     # handed back to whatever agent submitted the event.
-    body = _serialise(row) | {"detections": [d.summary() for d in detections]}
+    body = _serialise(row) | {"detections": detections}
     response = jsonify(body)
     response.status_code = 201
     response.headers["Location"] = url_for("events.get_event", event_id=row["id"])

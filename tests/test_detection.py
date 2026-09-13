@@ -341,7 +341,7 @@ def test_rerun_is_deterministic(client, write_auth, rerun_detection):
     runs = [rerun_detection(bodies[-1]["id"]) for _ in range(3)]
 
     assert all(len(r) == 1 for r in runs)
-    assert len({(d[0].threat_type, d[0].confidence, d[0].reason) for d in runs}) == 1
+    assert len({(d[0]["threat_type"], d[0]["confidence"], d[0]["reason"]) for d in runs}) == 1
 
 
 def test_multiple_rules_can_fire_on_one_event(client, write_auth, db, make_user):

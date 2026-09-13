@@ -1,6 +1,7 @@
 import re
 import os
 from dataclasses import dataclass
+from decimal import Decimal
 
 # The whole request body, enforced by Flask before the JSON parser runs.
 MAX_BODY_BYTES = 64 * 1024
@@ -79,6 +80,52 @@ PRIVILEGED_CONFIDENCE = 0.850
 
 # Metadata under a key like this is never copied into stored evidence.
 SENSITIVE_KEY_PATTERN = re.compile(r"(?i)(pass|secret|token|auth|cookie|session|credential|api[_-]?key)")
+
+# A client may name the device an event came from. The fingerprint is only ever
+# used to look up an authoritative devices row belonging to the event's own
+# user; the trust score itself is never taken from metadata.
+DEVICE_FINGERPRINT_KEY = "device_fingerprint"
+
+# --- risk engine -------------------------------------------------------------
+#
+# Severity sets a baseline, confidence scales it, and independent context adds
+# to it. Confidence is deliberately not additive: severity and confidence both
+# describe the same detection, so adding both would count one signal twice.
+
+RISK_MODEL_VERSION = "risk.v1"
+
+RISK_MIN_SCORE = 0
+RISK_MAX_SCORE = 100
+
+# Each baseline sits just inside its own band rather than on the floor, so
+# ordinary confidence variation keeps a threat in the band its severity implies
+# and only substantially weak confidence demotes it. On the floor, any
+# confidence below 1.0 would demote every detection by a band.
+RISK_SEVERITY_BASELINE = {"info": 10, "low": 22, "medium": 45, "high": 66, "critical": 88}
+
+# weighted = baseline * (FLOOR + (1 - FLOOR) * confidence). A floor of 0.70
+# means even a barely-confident detection keeps most of its severity, while a
+# fully confident one gets no bonus beyond its baseline.
+RISK_CONFIDENCE_FLOOR = Decimal("0.70")
+
+# Compromise of a privileged identity is worth more than of an unprivileged one.
+# Read from users.role, never from event metadata.
+RISK_ROLE_POINTS = {"admin": 8, "responder": 4, "analyst": 4, "viewer": 0}
+
+RISK_DEVICE_TRUST_THRESHOLD = Decimal("70")
+RISK_UNTRUSTED_DEVICE_POINTS = 6
+RISK_UNKNOWN_DEVICE_POINTS = 4
+
+RISK_SENSITIVE_RESOURCE_POINTS = 6
+
+# Breadth of attack, not repetition: counts distinct prior threat types from the
+# same source address. Repetition is already inside the brute-force evidence.
+RISK_ESCALATION_POINTS_PER_TYPE = 3
+RISK_ESCALATION_MAX_POINTS = 6
+RISK_ESCALATION_WINDOW_SECONDS = 86_400
+
+# (lower bound, upper bound, label); bounds inclusive, covering 0..100.
+RISK_LEVEL_BANDS = ((0, 29, "low"), (30, 59, "medium"), (60, 79, "high"), (80, 100, "critical"))
 
 READ = "read"
 WRITE = "write"

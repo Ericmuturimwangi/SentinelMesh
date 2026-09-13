@@ -7,7 +7,10 @@ from .errors import ApiError
 
 bp = Blueprint("threats", __name__, url_prefix="/api/threats")
 
-COLUMNS = "id, event_id, threat_type, severity, confidence, rule_id, evidence, detected_at, incident_id"
+COLUMNS = (
+    "id, event_id, threat_type, severity, confidence, rule_id, evidence, detected_at, incident_id, "
+    "risk_score, risk_level, risk_factors, risk_calculated_at"
+)
 
 # Keyset paging on the primary key: threat ids are monotonic, so this needs no
 # index beyond threats_pkey.
@@ -32,6 +35,10 @@ def _serialise(row: dict) -> dict:
         "evidence": row["evidence"],
         "detected_at": row["detected_at"].isoformat(),
         "incident_id": row["incident_id"],
+        "risk_score": int(row["risk_score"]) if row["risk_score"] is not None else None,
+        "risk_level": row["risk_level"],
+        "risk_factors": row["risk_factors"],
+        "risk_calculated_at": row["risk_calculated_at"].isoformat() if row["risk_calculated_at"] else None,
     }
 
 

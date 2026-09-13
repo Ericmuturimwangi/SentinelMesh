@@ -10,6 +10,7 @@ import logging
 
 from psycopg.types.json import Jsonb
 
+from .risk import calculate_threat_risk, load_risk_context
 from .rules import RULES
 
 log = logging.getLogger("sentinelmesh.detection")
@@ -18,19 +19,25 @@ log = logging.getLogger("sentinelmesh.detection")
 # rule emits exactly one threat_type, so re-running detection over an event
 # revises its verdict in place instead of accumulating duplicates.
 UPSERT_SQL = """
-    INSERT INTO threats (event_id, threat_type, severity, confidence, rule_id, evidence)
-    VALUES (%(event_id)s, %(threat_type)s, %(severity)s, %(confidence)s, %(rule_id)s, %(evidence)s)
+    INSERT INTO threats (event_id, threat_type, severity, confidence, rule_id, evidence,
+                         risk_score, risk_level, risk_factors, risk_calculated_at)
+    VALUES (%(event_id)s, %(threat_type)s, %(severity)s, %(confidence)s, %(rule_id)s, %(evidence)s,
+            %(risk_score)s, %(risk_level)s, %(risk_factors)s, now())
     ON CONFLICT (event_id, threat_type) DO UPDATE
-        SET severity    = EXCLUDED.severity,
-            confidence  = EXCLUDED.confidence,
-            rule_id     = EXCLUDED.rule_id,
-            evidence    = EXCLUDED.evidence,
-            detected_at = now()
+        SET severity           = EXCLUDED.severity,
+            confidence         = EXCLUDED.confidence,
+            rule_id            = EXCLUDED.rule_id,
+            evidence           = EXCLUDED.evidence,
+            risk_score         = EXCLUDED.risk_score,
+            risk_level         = EXCLUDED.risk_level,
+            risk_factors       = EXCLUDED.risk_factors,
+            risk_calculated_at = now(),
+            detected_at        = now()
     RETURNING id
 """
 
 
-def _persist(conn, event_id: int, detection) -> int:
+def _persist(conn, event_id: int, detection, risk) -> int:
     with conn.cursor() as cur:
         cur.execute(
             UPSERT_SQL,
@@ -41,21 +48,34 @@ def _persist(conn, event_id: int, detection) -> int:
                 "confidence": detection.confidence,
                 "rule_id": detection.rule_id,
                 "evidence": Jsonb({**detection.evidence, "reason": detection.reason}),
+                "risk_score": risk.score,
+                "risk_level": risk.level,
+                "risk_factors": Jsonb(risk.to_dict()),
             },
         )
         return cur.fetchone()["id"]
 
 
 def run_detection(conn, event) -> list:
-    """Evaluate every rule against one stored event, persisting what fires."""
-    detections = []
+    """Evaluate every rule against one stored event, scoring and persisting hits.
+
+    Risk context is loaded at most once per event, and only if something fires,
+    so an event that produces no threats costs no extra queries. Because it is
+    loaded before the first threat is written, every rule on one event scores
+    against the same context and the outcome does not depend on rule order.
+    """
+    outcomes = []
+    context = None
     for rule in RULES:
         try:
             with conn.transaction():
                 detection = rule(conn, event)
                 if detection is None:
                     continue
-                threat_id = _persist(conn, event["id"], detection)
+                if context is None:
+                    context = load_risk_context(conn, event)
+                risk = calculate_threat_risk(detection, event, context)
+                threat_id = _persist(conn, event["id"], detection, risk)
         except Exception:
             log.exception("detection rule failed", extra={"rule": rule.__name__, "event_id": event["id"]})
             continue
@@ -67,8 +87,12 @@ def run_detection(conn, event) -> list:
                 "threat_id": threat_id,
                 "threat_type": detection.threat_type,
                 "event_id": event["id"],
+                "risk_score": risk.score,
+                "risk_level": risk.level,
             },
         )
-        detections.append(detection)
+        outcomes.append(
+            detection.summary() | {"threat_id": threat_id, "risk_score": risk.score, "risk_level": risk.level}
+        )
 
-    return detections
+    return outcomes

@@ -11,7 +11,20 @@ ALLOWED_FIELDS = frozenset({"event_type", "user_id", "source_ip", "occurred_at",
 # Fields a client must never be able to assert. They are rejected by the
 # allowlist above; naming them separately only buys a clearer error message.
 SERVER_OWNED_FIELDS = frozenset(
-    {"id", "received_at", "severity", "risk_score", "confidence", "threat_type", "status", "result", "incident_id"}
+    {
+        "id",
+        "received_at",
+        "severity",
+        "confidence",
+        "threat_type",
+        "status",
+        "result",
+        "incident_id",
+        "risk_score",
+        "risk_level",
+        "risk_factors",
+        "trust_score",
+    }
 )
 
 
