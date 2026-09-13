@@ -1,3 +1,4 @@
+import re
 import os
 from dataclasses import dataclass
 
@@ -38,8 +39,46 @@ ALLOWED_EVENT_TYPES = frozenset(
         "process.exec",
         "network.connection",
         "data.egress",
+        # An application or API request. Its metadata carries the request
+        # descriptor the resource-access and injection rules inspect:
+        #   {"method": "GET", "path": "/api/admin/users", "query": {...}}
+        "api.request",
     }
 )
+
+# --- detection engine --------------------------------------------------------
+#
+# Thresholds live here rather than inside the rules so they can be tuned in one
+# place and asserted against in tests.
+
+THREAT_BRUTE_FORCE = "credential.bruteforce"
+THREAT_SQL_INJECTION = "injection.sql"
+THREAT_PRIVILEGED_ACCESS = "access.unauthorized.privileged"
+
+BRUTE_FORCE_EVENT_TYPE = "auth.login.failure"
+BRUTE_FORCE_THRESHOLD = 5
+BRUTE_FORCE_WINDOW_SECONDS = 120
+BRUTE_FORCE_SEVERITY = "high"
+BRUTE_FORCE_CONFIDENCE = 0.900
+
+# Credentials are a classic injection vector, so login attempts are inspected
+# alongside ordinary API requests.
+SQLI_EVENT_TYPES = frozenset({"api.request", "auth.login.failure", "auth.login.success"})
+SQLI_SEVERITY = "critical"
+# One indicator is suspicious; independent indicators compound.
+SQLI_CONFIDENCE_BASE = 0.750
+SQLI_CONFIDENCE_STEP = 0.100
+SQLI_CONFIDENCE_MAX = 0.950
+SQLI_SNIPPET_CHARS = 120
+
+PRIVILEGED_EVENT_TYPES = frozenset({"api.request"})
+PRIVILEGED_PATH_PREFIXES = ("/api/admin", "/admin", "/api/internal")
+PRIVILEGED_ROLES = frozenset({"admin"})
+PRIVILEGED_SEVERITY = "high"
+PRIVILEGED_CONFIDENCE = 0.850
+
+# Metadata under a key like this is never copied into stored evidence.
+SENSITIVE_KEY_PATTERN = re.compile(r"(?i)(pass|secret|token|auth|cookie|session|credential|api[_-]?key)")
 
 READ = "read"
 WRITE = "write"

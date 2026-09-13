@@ -74,6 +74,35 @@ def user(db):
 
 
 @pytest.fixture
+def make_user(db):
+    def _make(username: str, role: str) -> int:
+        return db.execute(
+            "INSERT INTO users (username, role) VALUES (%s, %s) RETURNING id", (username, role)
+        ).fetchone()["id"]
+
+    return _make
+
+
+@pytest.fixture
+def rerun_detection():
+    """Re-run the engine over an already-stored event, outside Flask.
+
+    The dispatcher only needs a psycopg connection, so this also demonstrates
+    that detection does not depend on the request layer.
+    """
+    from sentinelmesh.detection import run_detection
+
+    def _run(event_id: int):
+        with psycopg.connect(TEST_DSN, row_factory=dict_row) as conn:
+            event = conn.execute("SELECT * FROM events WHERE id = %s", (event_id,)).fetchone()
+            detections = run_detection(conn, event)
+            conn.commit()
+            return detections
+
+    return _run
+
+
+@pytest.fixture
 def write_auth():
     return {"Authorization": f"Bearer {WRITE_SECRET}"}
 

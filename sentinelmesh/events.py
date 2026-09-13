@@ -10,6 +10,7 @@ from psycopg.types.json import Jsonb
 from . import config
 from .auth import require_scope
 from .db import connection
+from .detection import run_detection
 from .errors import ApiError
 from .validation import validate_event
 
@@ -101,6 +102,8 @@ def create_event():
         conn.rollback()
         raise ApiError(409, "constraint_violation", "The event violates a storage constraint.") from None
 
+    detections = run_detection(conn, row)
+
     audit.info(
         "event ingested",
         extra={
@@ -111,7 +114,10 @@ def create_event():
         },
     )
 
-    body = _serialise(row)
+    # Summaries only. The full evidence, including payload snippets, is
+    # readable through /api/threats/ under the read scope rather than being
+    # handed back to whatever agent submitted the event.
+    body = _serialise(row) | {"detections": [d.summary() for d in detections]}
     response = jsonify(body)
     response.status_code = 201
     response.headers["Location"] = url_for("events.get_event", event_id=row["id"])

@@ -8,6 +8,7 @@ from .config import load_config
 from .db import init_pool
 from .errors import ApiError
 from .events import bp as events_bp
+from .threats import bp as threats_bp
 
 log = logging.getLogger("sentinelmesh")
 
@@ -30,6 +31,7 @@ def create_app(overrides: dict | None = None) -> Flask:
 
     init_pool(app)
     app.register_blueprint(events_bp)
+    app.register_blueprint(threats_bp)
     _register_request_id(app)
     _register_error_handlers(app)
     return app
