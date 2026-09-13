@@ -242,13 +242,56 @@ DEFAULT_RESOURCE_SENSITIVITY = SENSITIVITY_SENSITIVE
 # Resources at or above this rank require a privileged role (PRIVILEGED_ROLES).
 ZT_PRIVILEGED_SENSITIVITY = SENSITIVITY_CRITICAL
 
+# --- automated response engine -----------------------------------------------
+#
+# Containment is applied INSIDE SentinelMesh. Nothing here touches a firewall,
+# a router, an operating system or any external system: every action changes
+# SentinelMesh's own authoritative state, which the zero-trust engine then
+# enforces on subsequent access decisions.
+
+RESPONSE_MODEL_VERSION = "response.v1"
+
+ACTION_ALERT = "alert"
+ACTION_REQUIRE_STEP_UP = "require_step_up"
+ACTION_CONTAIN_SUBJECT = "contain_subject"
+ACTION_BLOCK_SOURCE = "block_source"
+ACTION_ISOLATE_DEVICE = "isolate_device"
+
+RESPONSE_ACTIONS = (
+    ACTION_ALERT,
+    ACTION_REQUIRE_STEP_UP,
+    ACTION_CONTAIN_SUBJECT,
+    ACTION_BLOCK_SOURCE,
+    ACTION_ISOLATE_DEVICE,
+)
+
+# Reusing the existing response_result enum. 'succeeded' is an action that ran
+# now; 'already_applied' one that was already in effect and was not re-run.
+RESULT_EXECUTED = "succeeded"
+RESULT_ALREADY_APPLIED = "already_applied"
+RESULT_FAILED = "failed"
+
+RESPONSE_POLICY_CRITICAL_INCIDENT = "critical_incident_containment"
+RESPONSE_POLICY_CRITICAL_THREAT = "critical_threat_containment"
+RESPONSE_POLICY_HIGH_INCIDENT = "high_incident_escalation"
+RESPONSE_POLICY_HIGH_THREAT = "high_threat_escalation"
+RESPONSE_POLICY_MEDIUM = "medium_monitoring"
+RESPONSE_POLICY_LOW = "low_no_containment"
+
+# Caps the context queries so responding to one incident cannot walk an
+# unbounded history of members.
+RESPONSE_CONTEXT_LIMIT = 50
+
 READ = "read"
 WRITE = "write"
 # Asking for an access decision is neither reading telemetry nor writing it. A
 # separate scope keeps an ingest agent's credential from acting as a policy
 # enforcement point.
 DECIDE = "decide"
-VALID_SCOPES = frozenset({READ, WRITE, DECIDE})
+# Asking the engine to re-evaluate containment for an incident is a distinct
+# privilege again: an ingest agent must not be able to trigger containment.
+RESPOND = "respond"
+VALID_SCOPES = frozenset({READ, WRITE, DECIDE, RESPOND})
 
 
 @dataclass(frozen=True)

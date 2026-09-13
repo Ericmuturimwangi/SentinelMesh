@@ -17,8 +17,9 @@ TEST_DSN = f"postgresql:///{TEST_DB}"
 WRITE_SECRET = "test-write-secret-000000"
 READ_SECRET = "test-read-secret-0000000"
 DECIDE_SECRET = "test-decide-secret-00000"
+RESPOND_SECRET = "test-respond-secret-0000"
 
-TABLES = "events, threats, incidents, responses, devices, users, access_decisions"
+TABLES = "events, threats, incidents, responses, devices, users, access_decisions, blocked_sources"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -41,7 +42,7 @@ def app(database):
     os.environ["DATABASE_URL"] = database
     os.environ["SENTINELMESH_API_KEYS"] = (
         f"test-agent:write:{WRITE_SECRET},test-analyst:read:{READ_SECRET},"
-        f"test-gateway:decide:{DECIDE_SECRET}"
+        f"test-gateway:decide:{DECIDE_SECRET},test-soar:respond:{RESPOND_SECRET}"
     )
     from sentinelmesh.app import create_app
 
@@ -117,6 +118,11 @@ def read_auth():
 @pytest.fixture
 def decide_auth():
     return {"Authorization": f"Bearer {DECIDE_SECRET}"}
+
+
+@pytest.fixture
+def respond_auth():
+    return {"Authorization": f"Bearer {RESPOND_SECRET}"}
 
 
 @pytest.fixture

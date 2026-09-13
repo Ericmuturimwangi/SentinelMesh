@@ -11,6 +11,7 @@ import logging
 from psycopg.types.json import Jsonb
 
 from .correlation import correlate
+from .response import respond_to_incident
 from .risk import calculate_threat_risk, load_risk_context
 from .rules import RULES
 
@@ -78,6 +79,24 @@ def run_detection(conn, event) -> list:
                 risk = calculate_threat_risk(detection, event, context)
                 threat_id = _persist(conn, event["id"], detection, risk)
                 incident = correlate(conn, event, threat_id, detection.summary())
+                # Containment runs in the same transaction as the threat and
+                # incident it answers to. Every action is internal SentinelMesh
+                # state, so this is atomic: there is no window in which a
+                # response claims containment for a threat that then rolls back.
+                # Its own savepoint means a response fault cannot discard the
+                # detection -- losing telemetry is worse than missing one
+                # containment, and the incident stays visible to the SOC.
+                try:
+                    with conn.transaction():
+                        response = respond_to_incident(
+                            conn, incident["incident_id"], actor="engine", threat_id=threat_id
+                        )
+                except Exception:
+                    log.exception(
+                        "automated response failed",
+                        extra={"event_id": event["id"], "incident_id": incident["incident_id"]},
+                    )
+                    response = None
         except Exception:
             log.exception("detection rule failed", extra={"rule": rule.__name__, "event_id": event["id"]})
             continue
@@ -101,6 +120,7 @@ def run_detection(conn, event) -> list:
                 "risk_score": risk.score,
                 "risk_level": risk.level,
                 "incident": incident,
+                "response": response,
             }
         )
 

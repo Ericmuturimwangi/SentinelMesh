@@ -1,10 +1,13 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 
 from . import config
 from .auth import require_scope
 from .correlation import build_timeline
 from .db import connection
 from .errors import ApiError
+from .response import respond_to_incident
+from .responses import COLUMNS as response_columns
+from .responses import serialise as serialise_response
 
 bp = Blueprint("incidents", __name__, url_prefix="/api/incidents")
 
@@ -116,6 +119,38 @@ def list_incidents():
     )
 
 
+@bp.post("/<int:incident_id>/respond/")
+@require_scope(config.RESPOND)
+def respond(incident_id: int):
+    """Re-evaluate containment for one incident.
+
+    The caller names the incident and nothing else: the action list, policy,
+    risk and results are all determined by the engine from authoritative state.
+    Idempotent, so calling it repeatedly does not re-contain anything.
+    """
+    if request.is_json:
+        payload = request.get_json(silent=True)
+        if payload is None:
+            raise ApiError(400, "malformed_json", "The request body is not valid JSON.")
+        if payload:
+            raise ApiError(
+                400,
+                "validation_error",
+                "The response engine determines the action, policy, risk and result.",
+                [{"field": name, "message": "Not accepted from a client."} for name in sorted(payload)],
+            )
+
+    conn = connection()
+    outcome = respond_to_incident(conn, incident_id, actor=f"api:{g.api_key.name}")
+    if outcome is None:
+        raise ApiError(404, "not_found", "No such incident.")
+
+    # Committed before responding so a failed audit write cannot be reported as
+    # successful containment.
+    conn.commit()
+    return jsonify(outcome), 200
+
+
 @bp.get("/<int:incident_id>")
 @require_scope(config.READ)
 def get_incident(incident_id: int):
@@ -130,10 +165,18 @@ def get_incident(incident_id: int):
         cur.execute(THREATS_SQL, (incident_id,))
         threats = cur.fetchall()
 
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT {response_columns} FROM responses WHERE incident_id = %s ORDER BY id",
+            (incident_id,),
+        )
+        actions = cur.fetchall()
+
     return jsonify(
         _serialise(row, len(threats))
         | {
             "threats": [_serialise_threat(t) for t in threats],
             "timeline": build_timeline(conn, incident_id),
+            "responses": [serialise_response(a) for a in actions],
         }
     )

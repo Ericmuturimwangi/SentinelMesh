@@ -49,6 +49,12 @@ class AccessContext:
     threat_count: int = 0
     incident: dict | None = None
     incident_risk: int = 0
+    # Containment applied by the response engine (Phase 6). These are what make
+    # automated containment real: the engine writes the state, this engine
+    # enforces it on every subsequent request.
+    subject_contained: bool = False
+    source_contained: bool = False
+    device_isolated: bool = False
 
 
 @dataclass(frozen=True)
@@ -128,6 +134,36 @@ def _critical_threat(c):
             config.DENY,
             "critical_threat",
             f"An active critical threat ({threat_type}, risk {c.max_threat_risk}) involves this context.",
+        )
+    return None
+
+
+def _subject_contained(c):
+    if c.subject_contained:
+        return (
+            config.DENY,
+            "subject_contained",
+            "The principal has been contained by an automated response.",
+        )
+    return None
+
+
+def _source_contained(c):
+    if c.source_contained:
+        return (
+            config.DENY,
+            "source_contained",
+            f"Source address {c.source_ip} is blocked inside SentinelMesh.",
+        )
+    return None
+
+
+def _device_isolated(c):
+    if c.device_isolated:
+        return (
+            config.DENY,
+            "device_isolated",
+            "The device has been isolated by an automated response.",
         )
     return None
 
@@ -227,6 +263,13 @@ POLICY_PRECEDENCE = (
     _identity_unknown,
     _critical_incident,
     _critical_threat,
+    # Containment sits below the incident and threat rules on purpose: those
+    # describe *why* access is unsafe, while containment is the mechanism
+    # derived from them. Reporting the cause is more useful to an analyst. It
+    # still denies on its own once an incident is triaged away.
+    _subject_contained,
+    _source_contained,
+    _device_isolated,
     _insufficient_privilege,
     _high_risk_on_sensitive_resource,
     _untrusted_device_on_sensitive_resource,
@@ -237,21 +280,28 @@ POLICY_PRECEDENCE = (
     _privileged_resource_step_up,
 )
 
-PRECEDENCE_NAMES = (
+DENY_POLICIES = (
     "identity_unauthenticated",
     "identity_unknown",
     "critical_incident",
     "critical_threat",
+    "subject_contained",
+    "source_contained",
+    "device_isolated",
     "insufficient_privilege",
     "high_risk_sensitive_resource",
     "untrusted_device_sensitive_resource",
+)
+
+STEP_UP_POLICIES = (
     "high_risk_incident",
     "high_risk_threat",
     "device_not_trusted",
     "elevated_risk",
     "privileged_resource",
-    "trusted_baseline",
 )
+
+PRECEDENCE_NAMES = DENY_POLICIES + STEP_UP_POLICIES + ("trusted_baseline",)
 
 
 def _factors(context: AccessContext) -> list:
@@ -304,6 +354,20 @@ def _factors(context: AccessContext) -> list:
             "value": context.sensitivity,
             "detail": f"{context.resource} classified {context.sensitivity} by server policy",
         },
+        {
+            "category": "containment",
+            "factor": "active_containment",
+            "value": sorted(
+                name
+                for name, active in (
+                    ("subject", context.subject_contained),
+                    ("source", context.source_contained),
+                    ("device", context.device_isolated),
+                )
+                if active
+            ),
+            "detail": "containment applied by the response engine inside SentinelMesh",
+        },
     ]
 
 
@@ -325,13 +389,15 @@ def evaluate_access(context: AccessContext) -> AccessDecision:
 
 # --- context loading ---------------------------------------------------------
 
-SUBJECT_SQL = "SELECT id, username, role FROM users WHERE id = %s"
+SUBJECT_SQL = "SELECT id, username, role, contained FROM users WHERE id = %s"
 
 DEVICE_SQL = """
-    SELECT trust_score
+    SELECT trust_score, isolated
     FROM devices
     WHERE user_id = %(user_id)s AND device_fingerprint = %(fingerprint)s
 """
+
+SOURCE_BLOCKED_SQL = "SELECT 1 FROM blocked_sources WHERE source_ip = %s::inet"
 
 # One indexed pass over recent threats for this subject or address, capped, then
 # the worst is taken in Python. Avoids a per-threat query.
@@ -381,26 +447,34 @@ def load_access_context(conn, *, resource, subject_user_id, device_fingerprint, 
     authenticated = subject_user_id is not None
 
     username = role = None
-    exists = False
+    exists = subject_contained = False
     if authenticated:
         with conn.cursor() as cur:
             cur.execute(SUBJECT_SQL, (subject_user_id,))
             row = cur.fetchone()
         if row is not None:
             exists, username, role = True, row["username"], row["role"]
+            subject_contained = row["contained"]
 
-    device_state, device_trust = config.DEVICE_UNKNOWN, None
+    device_state, device_trust, device_isolated = config.DEVICE_UNKNOWN, None, False
     if exists and isinstance(device_fingerprint, str) and device_fingerprint:
         with conn.cursor() as cur:
             cur.execute(DEVICE_SQL, {"user_id": subject_user_id, "fingerprint": device_fingerprint})
             row = cur.fetchone()
         if row is not None:
             device_trust = row["trust_score"]
+            device_isolated = row["isolated"]
             device_state = (
                 config.DEVICE_TRUSTED
                 if device_trust >= config.RISK_DEVICE_TRUST_THRESHOLD
                 else config.DEVICE_UNTRUSTED
             )
+
+    source_contained = False
+    if source_ip is not None:
+        with conn.cursor() as cur:
+            cur.execute(SOURCE_BLOCKED_SQL, (source_ip,))
+            source_contained = cur.fetchone() is not None
 
     threats = []
     incident = None
@@ -469,6 +543,9 @@ def load_access_context(conn, *, resource, subject_user_id, device_fingerprint, 
             else None
         ),
         incident_risk=int(incident["risk_score"]) if incident else 0,
+        subject_contained=subject_contained,
+        source_contained=source_contained,
+        device_isolated=device_isolated,
     )
 
 

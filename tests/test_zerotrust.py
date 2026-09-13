@@ -377,7 +377,7 @@ def test_every_decision_explains_all_five_categories():
     decision = evaluate_access(context(incident=incident(100), incident_risk=100, max_threat_risk=94))
 
     categories = {f["category"] for f in decision.factors}
-    assert categories == {"identity", "device", "threat", "incident", "resource"}
+    assert categories == {"identity", "device", "threat", "incident", "resource", "containment"}
     for factor in decision.factors:
         assert factor["detail"]
         assert factor["factor"]
