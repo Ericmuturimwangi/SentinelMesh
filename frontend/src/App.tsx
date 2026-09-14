@@ -14,9 +14,28 @@ function incidentIdFromHash(): number | null {
   return match ? Number(match[1]) : null;
 }
 
+/** Storage is unavailable in private windows, when site data is blocked, and in
+ *  some test environments; losing a theme preference must never break the SOC. */
+const preference = {
+  read(key: string): string | null {
+    try {
+      return globalThis.localStorage?.getItem(key) ?? null;
+    } catch {
+      return null;
+    }
+  },
+  write(key: string, value: string) {
+    try {
+      globalThis.localStorage?.setItem(key, value);
+    } catch {
+      /* preference simply does not persist */
+    }
+  },
+};
+
 function useTheme() {
   const [theme, setTheme] = useState<"dark" | "light">(() => {
-    const stored = localStorage.getItem("sm-theme");
+    const stored = preference.read("sm-theme");
     if (stored === "light" || stored === "dark") return stored;
     return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
   });
@@ -24,7 +43,7 @@ function useTheme() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
     // Only a display preference is persisted -- never anything security related.
-    localStorage.setItem("sm-theme", theme);
+    preference.write("sm-theme", theme);
   }, [theme]);
 
   return [theme, () => setTheme((t) => (t === "dark" ? "light" : "dark"))] as const;
@@ -66,6 +85,10 @@ export default function App() {
       setIncidents(page.data);
       setCursor(page.next_cursor);
       setError(null);
+      // Only a successful load counts: otherwise a first-load failure would
+      // show the quiet "retrying" line and the retryable error state could
+      // never appear at all.
+      loadedOnce.current = true;
     } catch (caught) {
       if (caught instanceof ApiError && caught.unauthenticated) {
         setSession({ authenticated: false });
@@ -74,7 +97,6 @@ export default function App() {
       setError(caught instanceof ApiError ? caught.message : "The SOC data service did not respond.");
     } finally {
       setLoading(false);
-      loadedOnce.current = true;
     }
   }, [status]);
 

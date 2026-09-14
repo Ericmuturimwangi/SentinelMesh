@@ -56,16 +56,18 @@ export function RiskFactors({ breakdown, label }: { breakdown: Partial<RiskBreak
 
 export function CorrelationPanel({ incident }: { incident: IncidentDetail }) {
   const confidence = incident.correlation_confidence;
-  const strength = confidence === null ? "—" : confidence >= 0.75 ? "HIGH" : "MODERATE";
+  const strength = confidence === null ? null : confidence >= 0.75 ? "HIGH" : "MODERATE";
   const signals = incident.correlation_factors.signals ?? [];
 
   return (
     <div>
       <div className="mb-3 flex items-baseline gap-2">
         <span className="font-mono text-3xl leading-none font-semibold tabular-nums text-ink">
-          {confidence === null ? "—" : confidence.toFixed(3)}
+          {confidence === null ? "n/a" : confidence.toFixed(3)}
         </span>
-        <span className="font-mono text-[11px] font-semibold uppercase tracking-wide text-muted">{strength}</span>
+        {strength && (
+          <span className="font-mono text-[11px] font-semibold uppercase tracking-wide text-muted">{strength}</span>
+        )}
       </div>
       {incident.correlation_factors.explanation && (
         <p className="mb-3 text-[13px] leading-relaxed text-muted">{incident.correlation_factors.explanation}</p>
@@ -105,22 +107,20 @@ export function AttackChain({ stages }: { stages: string[] }) {
     );
   }
   return (
-    <ol className="flex flex-col gap-0 sm:flex-row sm:items-stretch sm:gap-0">
+    // Stacked with downward arrows on narrow screens, left-to-right with
+    // rightward arrows once there is room; the progression stays legible either way.
+    <ol className="flex flex-col gap-2 sm:flex-row sm:items-center">
       {stages.map((stage, index) => (
-        <li key={stage} className="flex items-center gap-2 sm:flex-1 sm:flex-col sm:items-stretch sm:gap-2">
-          <div className="flex flex-1 items-center gap-2 rounded border border-line bg-sunken px-3 py-2 sm:flex-none">
-            <span className="font-mono text-[11px] text-faint tabular-nums">{index + 1}</span>
+        <li key={stage} className="flex flex-col gap-2 sm:flex-1 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-2 rounded border border-line bg-sunken px-3 py-2 sm:flex-1">
+            <span className="font-mono text-[11px] tabular-nums text-faint">{index + 1}</span>
             <span className="text-[13px] font-medium text-ink">{stage}</span>
           </div>
           {index < stages.length - 1 && (
-            <>
-              <span aria-hidden="true" className="px-1 text-faint sm:hidden">
-                ↓
-              </span>
-              <span aria-hidden="true" className="hidden text-center text-faint sm:block">
-                ↓
-              </span>
-            </>
+            <span aria-hidden="true" className="self-center text-faint sm:px-2">
+              <span className="sm:hidden">↓</span>
+              <span className="hidden sm:inline">→</span>
+            </span>
           )}
         </li>
       ))}

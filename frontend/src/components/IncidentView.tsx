@@ -52,7 +52,7 @@ export function IncidentView({ incident, onBack }: { incident: IncidentDetail; o
         <AttackChain stages={incident.correlation_factors.attack_stages ?? []} />
       </Panel>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid items-start gap-4 lg:grid-cols-2">
         <Panel title="Incident risk">
           <RiskFactors breakdown={incident.risk_factors} label="Incident risk" />
         </Panel>
@@ -74,7 +74,7 @@ export function IncidentView({ incident, onBack }: { incident: IncidentDetail; o
         </>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid items-start gap-4 lg:grid-cols-2">
         <Panel title="Zero trust">
           <ZeroTrustPanel records={incident.zero_trust} />
         </Panel>

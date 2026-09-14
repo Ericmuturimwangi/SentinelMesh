@@ -59,11 +59,13 @@ export const api = {
 
   summary: () => request<SocSummary>("/api/soc/summary/"),
 
-  incidents: (params: { limit?: number; cursor?: string; status?: string } = {}) => {
+  incidents: (params: { limit?: number; cursor?: string; status?: string; sort?: string } = {}) => {
     const query = new URLSearchParams();
     if (params.limit) query.set("limit", String(params.limit));
     if (params.cursor) query.set("cursor", params.cursor);
     if (params.status) query.set("status", params.status);
+    // Worst-first: the SOC queue is ordered by the backend, not re-sorted here.
+    query.set("sort", params.sort ?? "risk");
     const suffix = query.toString();
     return request<Page<IncidentSummary>>(`/api/incidents/${suffix ? `?${suffix}` : ""}`);
   },

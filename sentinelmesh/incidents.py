@@ -1,3 +1,5 @@
+from decimal import Decimal, InvalidOperation
+
 from flask import Blueprint, g, jsonify, request
 
 from . import config
@@ -24,6 +26,20 @@ LIST_SQL = f"""
     WHERE (%(cursor_id)s::bigint IS NULL OR id < %(cursor_id)s::bigint)
       AND (%(status)s::incident_status IS NULL OR status = %(status)s::incident_status)
     ORDER BY id DESC
+    LIMIT %(limit)s
+"""
+
+# Worst-first, which is the order a SOC queue actually needs. Row-wise
+# comparison keeps the keyset correct across the composite sort: paging never
+# repeats or skips an incident when two share a risk score.
+LIST_BY_RISK_SQL = f"""
+    SELECT {COLUMNS},
+           (SELECT count(*) FROM threats t WHERE t.incident_id = i.id) AS threat_count
+    FROM incidents i
+    WHERE (%(cursor_risk)s::numeric IS NULL
+           OR (risk_score, id) < (%(cursor_risk)s::numeric, %(cursor_id)s::bigint))
+      AND (%(status)s::incident_status IS NULL OR status = %(status)s::incident_status)
+    ORDER BY risk_score DESC, id DESC
     LIMIT %(limit)s
 """
 
@@ -145,16 +161,42 @@ def list_incidents():
     if status is not None and status not in {"open", "investigating", "contained", "resolved", "false_positive"}:
         raise ApiError(400, "validation_error", "Unknown incident status.")
 
+    sort = request.args.get("sort", "recent")
+    if sort not in {"recent", "risk"}:
+        raise ApiError(400, "validation_error", "sort must be 'recent' or 'risk'.")
+
+    cursor = request.args.get("cursor")
+    if sort == "risk":
+        cursor_risk, cursor_id = _risk_cursor(cursor)
+        params = {"cursor_risk": cursor_risk, "cursor_id": cursor_id, "status": status, "limit": limit}
+        sql = LIST_BY_RISK_SQL
+    else:
+        params = {"cursor_id": _int_param("cursor"), "status": status, "limit": limit}
+        sql = LIST_SQL
+
     with connection().cursor() as cur:
-        cur.execute(LIST_SQL, {"cursor_id": _int_param("cursor"), "status": status, "limit": limit})
+        cur.execute(sql, params)
         rows = cur.fetchall()
 
-    return jsonify(
-        {
-            "data": [_serialise(row, row["threat_count"]) for row in rows],
-            "next_cursor": str(rows[-1]["id"]) if len(rows) == limit else None,
-        }
-    )
+    if len(rows) < limit:
+        next_cursor = None
+    elif sort == "risk":
+        next_cursor = f"{rows[-1]['risk_score']}:{rows[-1]['id']}"
+    else:
+        next_cursor = str(rows[-1]["id"])
+
+    return jsonify({"data": [_serialise(row, row["threat_count"]) for row in rows], "next_cursor": next_cursor})
+
+
+def _risk_cursor(raw):
+    """Decode a 'risk:id' cursor, or (None, None) for the first page."""
+    if raw is None:
+        return None, None
+    risk, _, incident_id = raw.partition(":")
+    try:
+        return Decimal(risk), int(incident_id)
+    except (InvalidOperation, ValueError):
+        raise ApiError(400, "validation_error", "Malformed pagination cursor.") from None
 
 
 @bp.post("/<int:incident_id>/respond/")

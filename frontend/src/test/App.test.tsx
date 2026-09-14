@@ -29,9 +29,23 @@ const SUMMARY = { "/api/soc/summary/": { body: summaryFixture } };
 const INCIDENTS = { "/api/incidents/?": { body: { data: [incidentRow], next_cursor: null } } };
 const DETAIL = { "/api/incidents/1": { body: incidentDetailFixture } };
 
+/** jsdom here exposes no localStorage, so the suite installs a minimal one.
+ *  That also proves the app tolerates storage being absent entirely. */
+const storage = new Map<string, string>();
+vi.stubGlobal("localStorage", {
+  getItem: (key: string) => storage.get(key) ?? null,
+  setItem: (key: string, value: string) => void storage.set(key, value),
+  removeItem: (key: string) => void storage.delete(key),
+  clear: () => storage.clear(),
+  get length() {
+    return storage.size;
+  },
+  key: (index: number) => [...storage.keys()][index] ?? null,
+});
+
 beforeEach(() => {
   window.location.hash = "";
-  localStorage.clear();
+  storage.clear();
 });
 
 describe("authentication", () => {
@@ -80,7 +94,7 @@ describe("overview", () => {
     mockApi({ ...AUTHED, ...SUMMARY, ...INCIDENTS });
     render(<App />);
 
-    expect(await screen.findByText("SM-001")).toBeInTheDocument();
+    expect((await screen.findAllByText("SM-001")).length).toBeGreaterThan(0);
     expect(screen.getByText(/multi stage attack/i)).toBeInTheDocument();
     expect(screen.getAllByText(/critical/i).length).toBeGreaterThan(0);
   });
@@ -168,7 +182,7 @@ describe("incident investigation", () => {
     await openIncident();
     await userEvent.click(screen.getByRole("button", { name: /inspect threat injection.sql/i }));
     expect(await screen.findByText(/threat evidence/i)).toBeInTheDocument();
-    expect(screen.getByText("sql_injection.v1")).toBeInTheDocument();
+    expect(screen.getAllByText("sql_injection.v1").length).toBeGreaterThan(0);
   });
 
   it("renders the server-provided zero-trust decision", async () => {

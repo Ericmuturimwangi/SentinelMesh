@@ -43,7 +43,7 @@ export function Overview({
         </div>
       </section>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <Panel
           title="Incidents"
           aside={

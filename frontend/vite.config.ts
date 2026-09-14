@@ -1,4 +1,5 @@
-import { defineConfig } from "vite";
+// vitest/config so the `test` block below is actually honoured.
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
